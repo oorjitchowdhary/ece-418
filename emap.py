@@ -5,6 +5,8 @@ class EMAPoracle:
         self.k = k
         self.MOD = 2 ** k
         self.MASK = self.MOD - 1
+        # ⬇️ NEW: count how many protocol runs this oracle has seen
+        self.run_count = 0
         
         # Initialize secrets
         self.ID = random.getrandbits(k)
@@ -33,6 +35,8 @@ class EMAPoracle:
         return res
 
     def protocolRun1(self):
+        # ⬇️ NEW
+        self.run_count += 1
         # Reader Step 3
         n1 = random.getrandbits(self.k)
         n2 = random.getrandbits(self.k)

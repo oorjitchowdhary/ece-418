@@ -71,6 +71,165 @@ def MMAP_attack(oracle):
             
     return known_ID
 
+import math  # you already have random; math is new
+
+
+def reconstruct_ID_from_runs(runs, k):
+    """
+    Reconstruct ID using the same logic as MMAP_attack, but on an
+    arbitrary list of runs.
+
+    runs: list of tuples (IDP, B, E)
+    k:    key length in bits
+
+    Returns:
+        - int ID if the runs are sufficient to determine a unique ID
+        - None if there isn't enough information yet (i.e., some bit
+          sees no run with IDP_i = 0)
+    """
+    known_ID = 0
+
+    for bit in range(k):
+        candidates = []
+
+        for bit_val in [0, 1]:
+            consistent = True
+            current_ID_guess = known_ID | (bit_val << bit)
+            count_checked = 0
+
+            for IDP, B, E in runs:
+                # Only runs where IDP_i = 0 are informative for this bit
+                if not ((IDP >> bit) & 1):
+                    count_checked += 1
+
+                    # Same logic as in MMAP_attack:
+                    # sum_val = ID + IDP (for this run) using the current guess
+                    sum_val = current_ID_guess + IDP
+                    n1_derived = E ^ sum_val
+
+                    # If IDP_i = 0, we must have n1_i = B_i
+                    if ((n1_derived >> bit) & 1) != ((B >> bit) & 1):
+                        consistent = False
+                        break
+
+            # Only accept this candidate if we actually checked something
+            if consistent and count_checked > 0:
+                candidates.append(bit_val)
+
+        if len(candidates) == 1:
+            # Unique consistent bit value
+            known_ID |= (candidates[0] << bit)
+        elif len(candidates) == 0:
+            # No consistent candidate for this bit with the available runs:
+            # that means we don't yet have enough information to finish.
+            return None
+        else:
+            # Ambiguous but both are consistent with current runs.
+            # Keep behavior aligned with your MMAP_attack: pick one.
+            known_ID |= (candidates[0] << bit)
+
+    return known_ID
+
+
+def MMAP_attack_min_runs_single(k=96, max_runs=128, verbose=False):
+    """
+    For a fresh random MMAPoracle of key length k, empirically find
+    the *minimum* number of successful protocol runs needed for the
+    bit-by-bit attack to recover the correct ID.
+
+    Returns:
+        - r (int): smallest number of runs <= max_runs for which the
+          reconstructed ID matches the true ID
+        - None if we never succeed within max_runs
+    """
+    oracle = MMAPoracle(k=k)
+    runs = []
+    curr_IDP = oracle.IDP
+
+    for r in range(1, max_runs + 1):
+        out, _ = oracle.protocolRun()
+        if out:
+            # Store only the fields MMAP_attack uses: (IDP, B, E)
+            runs.append((curr_IDP, out['B'], out['E']))
+            curr_IDP = oracle.IDP
+
+            # Try to reconstruct ID from the runs collected so far
+            ID_guess = reconstruct_ID_from_runs(runs, k)
+            if ID_guess is not None and oracle.verifyID(ID_guess):
+                if verbose:
+                    print(f"[k={k}] Recovered ID after {r} runs")
+                return r
+        else:
+            # Failed run; oracle is updated, but we got no usable transcript
+            curr_IDP = oracle.IDP
+
+    # If we get here, we never recovered the ID within max_runs
+    if verbose:
+        print(f"[k={k}] Failed to recover ID within {max_runs} runs")
+    return None
+
+
+def experiment_mmap_scaling(k_values=None, trials=20, max_runs=128):
+    """
+    Empirically estimate how the number of required runs for the MMAP
+    attack scales with k.
+
+    For each k in k_values:
+        - run `MMAP_attack_min_runs_single(k, max_runs)` `trials` times
+        - compute the average, min, and max number of runs among
+          successful trials
+    Prints a small table and returns a dict for further analysis.
+
+    Returns:
+        results: dict mapping k -> {
+            "runs":   list of individual run counts (successful only),
+            "avg":    average runs,
+            "min":    min runs,
+            "max":    max runs,
+            "fails":  number of trials that did not succeed within max_runs
+        }
+    """
+    if k_values is None:
+        # Example range; adjust as you like
+        k_values = [32, 64, 96, 128]
+
+    results = {}
+
+    print("Empirical scaling of MMAP attack (min runs over trials)")
+    print("k (bits)\tavg runs\tmin\tmax\tfails")
+
+    for k in k_values:
+        run_counts = []
+        fails = 0
+        for _ in range(trials):
+            r = MMAP_attack_min_runs_single(k=k, max_runs=max_runs, verbose=False)
+            if r is None:
+                fails += 1
+            else:
+                run_counts.append(r)
+
+        if run_counts:
+            avg_runs = sum(run_counts) / len(run_counts)
+            min_runs = min(run_counts)
+            max_runs = max(run_counts)
+        else:
+            avg_runs = float('nan')
+            min_runs = None
+            max_runs = None
+
+        results[k] = {
+            "runs": run_counts,
+            "avg": avg_runs,
+            "min": min_runs,
+            "max": max_runs,
+            "fails": fails,
+        }
+
+        print(f"{k:7d}\t{avg_runs:8.2f}\t{min_runs}\t{max_runs}\t{fails}")
+
+    return results
+
+
 def EMAP_attack(oracle):
     k = oracle.k
     # Strategy:
@@ -79,7 +238,7 @@ def EMAP_attack(oracle):
     # 3. Use K4 update to get ID_LSB.
     
     # We need a chain of runs.
-    chain_length = 200
+    chain_length = 20
     history = []
     
     # Initial state
@@ -258,6 +417,95 @@ def EMAP_attack(oracle):
     
     return full_ID
 
+def EMAP_attack_runs_single():
+    """
+    Run a full EMAP_attack on a fresh EMAPoracle and return
+    how many protocolRun1() calls were made (as counted
+    by oracle.run_count).
+    """
+    oracle = EMAPoracle()  # k=96 in your current implementation
+    oracle.run_count = 0   # just to be safe
+    ID_guess = EMAP_attack(oracle)
+
+    if oracle.verifyID(ID_guess):
+        return oracle.run_count
+    else:
+        return None
+
+
+def empirical_emap_runs(trials=20):
+    """
+    Empirically estimate how many EMAP protocol runs (protocolRun1)
+    your current EMAP_attack uses on average.
+
+    Returns:
+        avg_runs (float), counts (list of individual run counts)
+    """
+    counts = []
+    fails = 0
+    for _ in range(trials):
+        r = EMAP_attack_runs_single()
+        if r is None:
+            fails += 1
+        else:
+            counts.append(r)
+
+    if counts:
+        avg_runs = sum(counts) / len(counts)
+    else:
+        avg_runs = float('nan')
+
+    print(f"EMAP: avg runs ≈ {avg_runs:.2f} over {trials} trials, fails={fails}")
+    return avg_runs, counts
+
+
+def plot_empirical_mmap_vs_emap(
+    k_values=None,
+    trials=20,
+    max_runs_mmap=128
+):
+    """
+    Empirically compare MMAP vs EMAP in terms of required runs
+    and plot:
+
+        - x-axis: k (bits)
+        - y-axis: avg number of runs
+
+    Note: your current EMAP implementation effectively only
+    supports k=96; we treat its average run count as a
+    constant w.r.t. k and plot it as a horizontal line.
+    """
+    if k_values is None:
+        k_values = [32, 64, 96, 128]
+
+    # 1) MMAP empirical scaling (uses experiment_mmap_scaling from before)
+    mmap_results = experiment_mmap_scaling(
+        k_values=k_values,
+        trials=trials,
+        max_runs=max_runs_mmap
+    )
+    mmap_avg = [mmap_results[k]["avg"] for k in k_values]
+
+    # 2) EMAP empirical avg (for k=96, but treated as constant)
+    emap_avg, _ = empirical_emap_runs(trials=trials)
+    emap_avg_list = [emap_avg] * len(k_values)
+
+    # 3) Plot
+    import matplotlib.pyplot as plt
+
+    plt.figure()
+    plt.plot(k_values, mmap_avg, marker='o', label='MMAP (empirical)')
+    plt.plot(k_values, emap_avg_list, marker='x', linestyle='--',
+             label='EMAP (empirical, treated as constant)')
+    plt.xlabel("Key length k (bits)")
+    plt.ylabel("Average protocol runs to recover ID")
+    plt.title("Empirical scaling of attacks on MMAP vs EMAP")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     # Simple test
     print("Testing MMAP Attack...")
@@ -273,3 +521,13 @@ if __name__ == "__main__":
     print(f"Actual ID: {emap_oracle.ID}")
     print(f"Recovered: {recovered_id_emap}")
     print(f"Success: {recovered_id_emap == emap_oracle.ID}")
+
+    print("\n=== Plot MMAP vs EMAP empirical runs ===")
+    plot_empirical_mmap_vs_emap(
+        k_values=[32, 64, 96, 128],
+        trials=20,
+        max_runs_mmap=128
+    )
+    avg_emap, counts = empirical_emap_runs(trials=5)
+    print("Raw EMAP run counts:", counts)
+
