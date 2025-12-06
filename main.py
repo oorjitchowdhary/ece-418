@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 
 from mmap import MMAPoracle, attack as mmap_attack, experiment_scaling as mmap_experiment_scaling
-from emap import EMAPoracle, attack as emap_attack, empirical_runs as emap_empirical_runs, experiment_scaling as emap_experiment_scaling
+from emap import EMAPoracle, attack as emap_attack, experiment_scaling as emap_experiment_scaling
 
 
 def plot_empirical_mmap_vs_emap(k_values=None, trials=20, max_runs_mmap=128):
