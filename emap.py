@@ -255,11 +255,8 @@ def empirical_runs(trials=20, k=96):
     print(f"EMAP: avg runs ≈ {avg_runs:.2f} over {trials} trials (k={k}), fails={fails}")
     return avg_runs, counts
 
-def experiment_scaling(k_values=None, trials=20):
+def experiment_scaling(k_values, trials=20):
     """Estimate how required runs for EMAP attack scale with k."""
-    if k_values is None:
-        k_values = [32, 64, 96, 128]
-
     results = {}
 
     print("Empirical scaling of EMAP attack (avg runs over trials)")

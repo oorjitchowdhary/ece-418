@@ -132,7 +132,7 @@ def reconstruct_ID_from_runs(runs, k):
     return known_ID
 
 
-def attack_min_runs_single(k=96, max_runs=128, verbose=False):
+def attack_min_runs_single(k=96, max_runs=128):
     """Find minimum runs needed to recover ID for a single MMAP oracle instance."""
     oracle = MMAPoracle(k=k)
     runs = []
@@ -146,22 +146,16 @@ def attack_min_runs_single(k=96, max_runs=128, verbose=False):
 
             ID_guess = reconstruct_ID_from_runs(runs, k)
             if ID_guess is not None and oracle.verifyID(ID_guess):
-                if verbose:
-                    print(f"[k={k}] Recovered ID after {r} runs")
                 return r
         else:
             curr_IDP = oracle.IDP
 
-    if verbose:
-        print(f"[k={k}] Failed to recover ID within {max_runs} runs")
+    print(f"[k={k}] Failed to recover ID within {max_runs} runs")
     return None
 
 
-def experiment_scaling(k_values=None, trials=20, max_runs=128):
+def experiment_scaling(k_values, trials=20, max_runs=128):
     """Estimate how required runs for MMAP attack scale with k."""
-    if k_values is None:
-        k_values = [32, 64, 96, 128]
-
     results = {}
 
     print("Empirical scaling of MMAP attack (min runs over trials)")
@@ -171,7 +165,7 @@ def experiment_scaling(k_values=None, trials=20, max_runs=128):
         run_counts = []
         fails = 0
         for _ in range(trials):
-            r = attack_min_runs_single(k=k, max_runs=max_runs, verbose=False)
+            r = attack_min_runs_single(k=k, max_runs=max_runs)
             if r is None:
                 fails += 1
             else:

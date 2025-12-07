@@ -4,11 +4,8 @@ from mmap import MMAPoracle, attack as mmap_attack, experiment_scaling as mmap_e
 from emap import EMAPoracle, attack as emap_attack, experiment_scaling as emap_experiment_scaling
 
 
-def plot_empirical_mmap_vs_emap(k_values=None, trials=20, max_runs_mmap=128):
+def plot_empirical_mmap_vs_emap(k_values, trials=20, max_runs_mmap=128):
     """Compare MMAP vs EMAP attacks empirically and plot results."""
-    if k_values is None:
-        k_values = [32, 64, 96, 128]
-
     mmap_results = mmap_experiment_scaling(k_values=k_values, trials=trials, max_runs=max_runs_mmap)
     mmap_avg = [mmap_results[k]["avg"] for k in k_values]
 
